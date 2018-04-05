@@ -277,6 +277,31 @@ parameters:
   name: EXCECUTION_SERVER_MEMORY_LIMIT
   value: 1Gi
   required: false
+- displayName: Elasticsearch hostname
+  description: Elasticsearch hostname
+  name: APPFORMER_ELASTIC_HOST
+  value: 'fill-the-ip'
+  required: false
+- displayName: JMS broker hostname
+  description: JMS broker hostname
+  name: APPFORMER_JMS_BROKER_ADDRESS
+  value: 'fill-the-ip'
+  required: false
+- displayName: JMS broker user
+  description: JMS broker user
+  name: APPFORMER_JMS_BROKER_USER
+  value: 'admin'
+  required: false
+- displayName: JMS broker password
+  description: JMS broker password
+  name: APPFORMER_JMS_BROKER_PASSWORD
+  value: 'admin'
+  required: false
+- displayName: Additional Java options
+  description: Additional Java options
+  name: JAVA_OPTS_APPEND
+  value: '-Des.set.netty.runtime.available.processors=false'
+  required: false
 objects:
 - kind: ServiceAccount
   apiVersion: v1
@@ -321,6 +346,22 @@ objects:
 - kind: Service
   apiVersion: v1
   spec:
+    clusterIP: "None"
+    ports:
+    - name: "ping"
+      port: 8888
+    selector:
+      deploymentConfig: "${APPLICATION_NAME}-rhpamcentr"
+  metadata:
+    name: "${APPLICATION_NAME}-ping"
+    labels:
+      application: "${APPLICATION_NAME}"
+    annotations:
+      service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+      description: "The JGroups ping port for clustering."
+- kind: Service
+  apiVersion: v1
+  spec:
     ports:
     - port: 8080
       targetPort: 8080
@@ -360,6 +401,20 @@ objects:
       application: "${APPLICATION_NAME}"
     annotations:
       description: The database server's port.
+- kind: Service
+  apiVersion: v1
+  spec:
+    ports:
+    - port: 61616
+      targetPort: 61616
+    selector:
+      deploymentConfig: "${APPLICATION_NAME}-amq-openshift"
+  metadata:
+    name: "${APPLICATION_NAME}-amq-openshift"
+    labels:
+      application: "${APPLICATION_NAME}"
+    annotations:
+      description: JMS broker for Business Central.
 - kind: Route
   apiVersion: v1
   id: "${APPLICATION_NAME}-rhpamcentr-http"
@@ -514,6 +569,22 @@ objects:
             value: probe.eap.jolokia.EapProbe
           - name: PROBE_DISABLE_BOOT_ERRORS_CHECK
             value: 'true'
+          - name: APPFORMER_ELASTIC_HOST
+            value: "${APPFORMER_ELASTIC_HOST}"
+          - name: APPFORMER_JMS_BROKER_ADDRESS
+            value: "${APPFORMER_JMS_BROKER_ADDRESS}"
+          - name: APPFORMER_JMS_BROKER_USER
+            value: "${APPFORMER_JMS_BROKER_USER}"
+          - name: APPFORMER_JMS_BROKER_PASSWORD
+            value: "${APPFORMER_JMS_BROKER_PASSWORD}"
+          - name: JGROUPS_PING_PROTOCOL
+            value: "openshift.DNS_PING"
+          - name: OPENSHIFT_DNS_PING_SERVICE_NAME
+            value: "${APPLICATION_NAME}-ping"
+          - name: OPENSHIFT_DNS_PING_SERVICE_PORT
+            value: "8888"
+          - name: JAVA_OPTS_APPEND
+            value: "${JAVA_OPTS_APPEND}"
         volumes:
         - name: businesscentral-keystore-volume
           secret:
@@ -725,6 +796,49 @@ objects:
         - name: "${APPLICATION_NAME}-mysql-pvol"
           persistentVolumeClaim:
             claimName: "${APPLICATION_NAME}-mysql-claim"
+- kind: DeploymentConfig
+  apiVersion: v1
+  metadata:
+    name: "${APPLICATION_NAME}-amq-openshift"
+    labels:
+      application: "${APPLICATION_NAME}"
+  spec:
+    strategy:
+      type: Recreate
+    triggers:
+    - type: ImageChange
+      imageChangeParams:
+        automatic: true
+        containerNames:
+        - "${APPLICATION_NAME}-amq-openshift"
+        from:
+          kind: ImageStreamTag
+          namespace: "${IMAGE_STREAM_NAMESPACE}"
+          name: "rhpam70-amq-openshift:${IMAGE_STREAM_TAG}"
+    - type: ConfigChange
+    replicas: 1
+    selector:
+      deploymentConfig: "${APPLICATION_NAME}-amq-openshift"
+    template:
+      metadata:
+        name: "${APPLICATION_NAME}-amq-openshift"
+        labels:
+          deploymentConfig: "${APPLICATION_NAME}-amq-openshift"
+          application: "${APPLICATION_NAME}"
+      spec:
+        terminationGracePeriodSeconds: 60
+        containers:
+        - name: "${APPLICATION_NAME}-amq-openshift"
+          image: rhpam70-amq-openshift
+          imagePullPolicy: Always
+          ports:
+          - containerPort: 61616
+            protocol: TCP
+          env:
+          - name: AMQ_USER
+            value: "${APPFORMER_JMS_BROKER_USER}"
+          - name: AMQ_PASSWORD
+            value: "${APPFORMER_JMS_BROKER_PASSWORD}"
 - apiVersion: v1
   kind: PersistentVolumeClaim
   metadata:
