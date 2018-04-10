@@ -847,7 +847,7 @@ objects:
       application: "${APPLICATION_NAME}"
   spec:
     accessModes:
-    - ReadWriteOnce
+    - ReadWriteMany
     resources:
       requests:
         storage: "${BUSINESS_CENTRAL_VOLUME_CAPACITY}"
